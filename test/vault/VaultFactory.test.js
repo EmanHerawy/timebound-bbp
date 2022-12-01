@@ -1,6 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { predictBeaconProxy } = require("../utils/helpers.js");
+const ZERO_ADDRESS = ethers.constants.AddressZero;
 
 describe("VaultFactory", async () => {
     let deployer, unprivileged, owner, rich, whitehat, proposer, feeAddr1, feeAddr2;
@@ -30,7 +31,19 @@ describe("VaultFactory", async () => {
             const VaultFactory = await ethers.getContractFactory("VaultFactory", deployer);
             vaultFactory = await VaultFactory.connect(deployer).deploy(owner.address, vault.address);
         });
+        it("Owner could be Zero address and contract could stuck forever", async () => {
+            const Vault = await ethers.getContractFactory("Vault", deployer);
+            vault = await Vault.connect(deployer).deploy();
 
+            const VaultFactory = await ethers.getContractFactory("VaultFactory", deployer);
+            vaultFactory = await VaultFactory.connect(deployer).deploy(ZERO_ADDRESS, vault.address);
+
+            await expect(await vaultFactory.connect(unprivileged).owner()).to.be.equal(ZERO_ADDRESS);
+
+
+            await expect(await vaultFactory.connect(unprivileged).feeTo()).to.be.equal(ZERO_ADDRESS);
+
+        });
         it("should set the owner", async () => {
             await expect(await vaultFactory.connect(unprivileged).owner()).to.be.equal(owner.address);
         });

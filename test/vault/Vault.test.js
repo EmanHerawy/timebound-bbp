@@ -14,7 +14,7 @@ describe("Vault", async () => {
     const GAS = 2618; // Gnosis safe eth transfer requires at least 2618 gas
 
     beforeEach(async () => {
-        [deployer, owner, rich, unprivileged, whitehat, proposer, feeAddr1, feeAddr2] = await ethers.getSigners();
+        [deployer, owner, rich, unprivileged, whitehat, whitehat2, proposer, feeAddr1, feeAddr2] = await ethers.getSigners();
 
         BeaconProxyFactory = await ethers.getContractFactory("BeaconProxy");
 
@@ -58,12 +58,10 @@ describe("Vault", async () => {
         await vaultFactory.connect(feeAddr1).acceptFeeTo();
         immunefiAddr = await vaultFactory.feeTo();
     });
+   
 
-    it("Revert, if the contract is already initialized.", async () => {
-        await expect(proxy.connect(owner).initialize(owner.address, emptyBytes)).to.be.revertedWith(
-            "Initializable: contract is already initialized"
-        );
-    });
+
+ 
 
     describe("withdraw()", async () => {
         it("Owner should be able to withdraw", async () => {
@@ -175,6 +173,223 @@ describe("Vault", async () => {
             await expect((await ethers.provider.getBalance(immunefiAddr)).sub(immunefiETHBalanceBefore)).to.be.equal(
                 feeAmountC
             );
+        });
+        it("fund migh be lost if by mistake beneficiary address is zero ", async () => {
+            let bountyAmountA = ethers.utils.parseUnits("100", "ether");
+            let feeAmountA = bountyAmountA.div(FEE_PERCENT);
+
+            let bountyAmountB = ethers.utils.parseUnits("200", "ether");
+            let feeAmountB = bountyAmountB.div(FEE_PERCENT);
+
+            let bountyAmountC = ethers.utils.parseUnits("1", "ether");
+            let feeAmountC = bountyAmountC.div(FEE_PERCENT);        
+            await rich.sendTransaction({ to: proxy.address, value: bountyAmountC.add(feeAmountC) });
+
+          
+            let tx = await proxy.connect(owner).payWhitehat(
+                referenceId,
+               ZERO_ADDRESS,
+                [
+                   
+                ],
+                bountyAmountC,
+                GAS
+            );
+
+         
+            // We test each event argument individually since ethereum-waffle currently does not do a deep equivalency check on struct arrays
+            //await expect(tx).to.emit(proxy, "PayWhitehat").withArgs(referenceId, whitehat.address, expectedPayout, bountyAmountC, feeTo, fee);
+            let receipt = (await tx.wait()).events?.filter((x) => {
+                return x.event == "PayWhitehat";
+            });
+            await expect(receipt[0].args[0]).to.equal(referenceId);
+            await expect(receipt[0].args[1]).to.equal(ZERO_ADDRESS);
+            // await expect(receipt[0].args[2]).to.deep.equal(expectedPayout);
+            await expect(receipt[0].args[3]).to.equal(bountyAmountC);
+            await expect(receipt[0].args[4]).to.equal(immunefiAddr);
+            await expect(receipt[0].args[5]).to.equal(1000);
+
+          
+        });
+        it("should have DOS for long loops with many tokens", async () => {
+            let bountyAmountA = ethers.utils.parseUnits("100", "ether");
+            let feeAmountA = bountyAmountA.div(FEE_PERCENT);
+
+            let bountyAmountB = ethers.utils.parseUnits("200", "ether");
+            let feeAmountB = bountyAmountB.div(FEE_PERCENT);
+
+            let bountyAmountC = ethers.utils.parseUnits("1", "ether");
+            let feeAmountC = bountyAmountC.div(FEE_PERCENT);
+
+            let tokenAEvent = [tokenA.address, bountyAmountA];
+            tokenAEvent.token = tokenA.address;
+            tokenAEvent.amount = bountyAmountA;
+            let tokenBEvent = [tokenB.address, bountyAmountB];
+            tokenBEvent.token = tokenB.address;
+            tokenBEvent.amount = bountyAmountB;
+           
+
+
+          
+          
+ // let have multi copies from the same token just for testing
+  
+            let expectedPayout = [
+                         ];
+            let ERC20Payment = [
+                         ];
+              
+            await rich.sendTransaction({ to: proxy.address, value: bountyAmountC.add(feeAmountC) });
+
+            const forLoop = async _ => {
+                console.log('Start')
+
+                for (let index = 0; index < 300; index++) {
+
+                    expectedPayout.push(tokenAEvent, tokenBEvent);
+                    ERC20Payment.push({ token: tokenA.address, amount: bountyAmountA },
+                        { token: tokenB.address, amount: bountyAmountB });
+                    // send token 
+                    await expect(await tokenB.connect(rich).transfer(proxy.address, bountyAmountB.add(feeAmountB))).to.emit(tokenB, "Transfer");
+                    await tokenB.connect(rich).approve(proxy.address, bountyAmountB.add(feeAmountB));
+                    await tokenA.connect(rich).transfer(proxy.address, bountyAmountA.add(feeAmountA));
+                    await tokenA.connect(rich).approve(proxy.address, bountyAmountA.add(feeAmountA));
+
+                    // console.log("*********")
+                }
+
+                // console.log({expectedPayout})
+                // console.log({ ERC20Payment })
+                // console.log('End')
+            }
+           await forLoop();
+             await expect(proxy.connect(owner).payWhitehat(
+                referenceId,
+                whitehat.address, ERC20Payment,
+                bountyAmountC,
+                GAS
+             )).to.be.revertedWith(
+                 "InvalidInputError: Transaction gas limit is 30178072 and exceeds block gas limit of 30000000"
+             );
+
+          
+       
+
+         
+        });
+        it("Whitehat can more than once for the same work", async () => {
+            let bountyAmountA = ethers.utils.parseUnits("100", "ether");
+            let feeAmountA = bountyAmountA.div(FEE_PERCENT);
+
+            let bountyAmountB = ethers.utils.parseUnits("200", "ether");
+            let feeAmountB = bountyAmountB.div(FEE_PERCENT);
+
+            let bountyAmountC = ethers.utils.parseUnits("1", "ether");
+            let feeAmountC = bountyAmountC.div(FEE_PERCENT);
+
+            let tokenAEvent = [tokenA.address, bountyAmountA];
+            tokenAEvent.token = tokenA.address;
+            tokenAEvent.amount = bountyAmountA;
+            let tokenBEvent = [tokenB.address, bountyAmountB];
+            tokenBEvent.token = tokenB.address;
+            tokenBEvent.amount = bountyAmountB;
+            let expectedPayout = [tokenAEvent, tokenBEvent];
+
+            let whitehatETHBalanceBefore = await whitehat2.getBalance();
+            let immunefiETHBalanceBefore = await ethers.provider.getBalance(immunefiAddr);
+
+            await tokenA.connect(rich).transfer(proxy.address, bountyAmountA.add(feeAmountA));
+            await tokenA.connect(rich).approve(proxy.address, bountyAmountA.add(feeAmountA));
+
+            await tokenB.connect(rich).transfer(proxy.address, bountyAmountB.add(feeAmountB));
+            await tokenB.connect(rich).approve(proxy.address, bountyAmountB.add(feeAmountB));
+
+            await rich.sendTransaction({ to: proxy.address, value: bountyAmountC.add(feeAmountC) });
+
+            await expect(await tokenA.connect(unprivileged).balanceOf(whitehat2.address)).to.be.equal(0);
+            await expect(await tokenA.connect(unprivileged).balanceOf(immunefiAddr)).to.be.equal(0);
+
+            await expect(await tokenB.connect(unprivileged).balanceOf(whitehat2.address)).to.be.equal(0);
+            await expect(await tokenB.connect(unprivileged).balanceOf(immunefiAddr)).to.be.equal(0);
+
+            let tx = await proxy.connect(owner).payWhitehat(
+                referenceId,
+                whitehat2.address,
+                [
+                    { token: tokenA.address, amount: bountyAmountA },
+                    { token: tokenB.address, amount: bountyAmountB },
+                ],
+                bountyAmountC,
+                GAS
+            );
+
+            await expect(tx).to.emit(tokenA, "Transfer").withArgs(proxy.address, immunefiAddr, feeAmountA);
+            await expect(tx).to.emit(tokenA, "Transfer").withArgs(proxy.address, whitehat2.address, bountyAmountA);
+            await expect(tx).to.emit(tokenB, "Transfer").withArgs(proxy.address, immunefiAddr, feeAmountB);
+            await expect(tx).to.emit(tokenB, "Transfer").withArgs(proxy.address, whitehat2.address, bountyAmountB);
+
+            // We test each event argument individually since ethereum-waffle currently does not do a deep equivalency check on struct arrays
+            //await expect(tx).to.emit(proxy, "PayWhitehat").withArgs(referenceId, whitehat2.address, expectedPayout, bountyAmountC, feeTo, fee);
+            let receipt = (await tx.wait()).events?.filter((x) => {
+                return x.event == "PayWhitehat";
+            });
+            await expect(receipt[0].args[0]).to.equal(referenceId);
+            await expect(receipt[0].args[1]).to.equal(whitehat2.address);
+            await expect(receipt[0].args[2]).to.deep.equal(expectedPayout);
+            await expect(receipt[0].args[3]).to.equal(bountyAmountC);
+            await expect(receipt[0].args[4]).to.equal(immunefiAddr);
+            await expect(receipt[0].args[5]).to.equal(1000);
+
+            await expect(await tokenA.connect(unprivileged).balanceOf(whitehat2.address)).to.be.equal(bountyAmountA);
+            await expect(await tokenA.connect(unprivileged).balanceOf(immunefiAddr)).to.be.equal(feeAmountA);
+            await expect(await tokenB.connect(unprivileged).balanceOf(whitehat2.address)).to.be.equal(bountyAmountB);
+            await expect(await tokenB.connect(unprivileged).balanceOf(immunefiAddr)).to.be.equal(feeAmountB);
+            await expect((await whitehat2.getBalance()).sub(whitehatETHBalanceBefore)).to.be.equal(bountyAmountC);
+            await expect((await ethers.provider.getBalance(immunefiAddr)).sub(immunefiETHBalanceBefore)).to.be.equal(
+                feeAmountC
+            );
+
+
+
+            // send it again for the same work ( even for work id belong to someone else )
+
+
+             whitehatETHBalanceBefore = await whitehat2.getBalance();
+             immunefiETHBalanceBefore = await ethers.provider.getBalance(immunefiAddr);
+
+            await tokenA.connect(rich).transfer(proxy.address, bountyAmountA.add(feeAmountA));
+            await tokenA.connect(rich).approve(proxy.address, bountyAmountA.add(feeAmountA));
+
+            await tokenB.connect(rich).transfer(proxy.address, bountyAmountB.add(feeAmountB));
+            await tokenB.connect(rich).approve(proxy.address, bountyAmountB.add(feeAmountB));
+
+            await rich.sendTransaction({ to: proxy.address, value: bountyAmountC.add(feeAmountC) });
+
+          
+             tx = await proxy.connect(owner).payWhitehat(
+                referenceId,
+                whitehat2.address,
+                [
+                    { token: tokenA.address, amount: bountyAmountA },
+                    { token: tokenB.address, amount: bountyAmountB },
+                ],
+                bountyAmountC,
+                GAS
+            );
+
+          
+            // We test each event argument individually since ethereum-waffle currently does not do a deep equivalency check on struct arrays
+            //await expect(tx).to.emit(proxy, "PayWhitehat").withArgs(referenceId, whitehat2.address, expectedPayout, bountyAmountC, feeTo, fee);
+             receipt = (await tx.wait()).events?.filter((x) => {
+                return x.event == "PayWhitehat";
+            });
+            await expect(receipt[0].args[0]).to.equal(referenceId);
+            await expect(receipt[0].args[1]).to.equal(whitehat2.address);
+            await expect(receipt[0].args[2]).to.deep.equal(expectedPayout);
+            await expect(receipt[0].args[3]).to.equal(bountyAmountC);
+            await expect(receipt[0].args[4]).to.equal(immunefiAddr);
+            await expect(receipt[0].args[5]).to.equal(1000);
+
         });
 
         it("Revert, if the vault doesn't have enough balance to pay the whitehat.", async () => {

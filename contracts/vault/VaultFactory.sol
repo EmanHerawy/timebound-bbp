@@ -29,6 +29,8 @@ contract VaultFactory is UpgradeableBeacon, IVaultFactory {
     event FeeToTransferred(address prevFeeTo, address newFeeTo);
     event FeeChanged(uint256 prevFee, uint256 newFee);
 
+
+// no checksfor zero values e.g address , value
     constructor(address _owner, address _implementation) UpgradeableBeacon(_implementation) {
         _create2Prefix = bytes21(uint168((0xff << 160) | uint256(uint160(address(this)))));
         _transferOwnership(_owner);
